@@ -162,6 +162,11 @@ type ReadTransaction interface {
 type BatchMutation interface {
 	Set(key, value string)
 	Delete(key string)
+
+	// If the BatchMutation has not been committed, cancel it. Otherwise
+	// this does nothing. The BatchMutation should not be used after
+	// calling Close().
+	Close() error
 }
 
 type Mutation interface {
@@ -206,6 +211,10 @@ func (b *batch) Delete(key string) {
 
 func (b *batch) Set(key, value string) {
 	b.m = append(b.m, mutation{key: key, value: value})
+}
+
+func (b *batch) Close() error {
+	return nil
 }
 
 var (
