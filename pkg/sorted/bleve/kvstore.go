@@ -10,12 +10,21 @@ import (
 	"perkeep.org/pkg/sorted"
 )
 
+func NewKVStore(txr sorted.TransactionalReader, op store.MergeOperator) store.KVStore {
+	return &kvStore{
+		txr: txr,
+		op:  op,
+	}
+}
+
 type kvStore struct {
 	txr sorted.TransactionalReader
+	op  store.MergeOperator
 }
 
 type kvReader struct {
-	tx sorted.ReadTransaction
+	isClosed bool
+	tx       sorted.ReadTransaction
 }
 
 type kvRangeIter struct {
@@ -34,15 +43,21 @@ type kvWriter struct {
 }
 
 type kvBatch struct {
-	batch sorted.BatchMutation
+	writer *kvWriter
+	batch  sorted.BatchMutation
+	merges map[string][][]byte
 }
 
 func (kv *kvStore) Writer() (store.KVWriter, error) {
 	return &kvWriter{store: kv}, nil
 }
 
+func (kv *kvStore) reader() *kvReader {
+	return &kvReader{tx: kv.txr.BeginReadTx()}
+}
+
 func (kv *kvStore) Reader() (store.KVReader, error) {
-	return &kvReader{tx: kv.txr.BeginReadTx()}, nil
+	return kv.reader(), nil
 }
 
 func (r *kvReader) Get(key []byte) ([]byte, error) {
@@ -153,7 +168,11 @@ func (kv *kvStore) Close() error {
 }
 
 func (w *kvWriter) NewBatch() store.KVBatch {
-	return &kvBatch{batch: w.store.txr.BeginBatch()}
+	return &kvBatch{
+		writer: w,
+		batch:  w.store.txr.BeginBatch(),
+		merges: make(map[string][][]byte),
+	}
 }
 
 func (w *kvWriter) NewBatchEx(opts store.KVBatchOptions) ([]byte, store.KVBatch, error) {
@@ -161,14 +180,69 @@ func (w *kvWriter) NewBatchEx(opts store.KVBatchOptions) ([]byte, store.KVBatch,
 }
 
 func (w *kvWriter) ExecuteBatch(batch store.KVBatch) error {
-	return w.store.txr.CommitBatch(batch.(*kvBatch).batch)
+	// We first commit the pending writes, and then in a separate pass apply the
+	// merges.
+	//
+	// The reason for this is that not all TransactionalReader implementations
+	// support transactions which are *both* read and write, so in order to get
+	// the existing values we first need to release the write transaction.
+	kvBatch := batch.(*kvBatch)
+	err := w.store.txr.CommitBatch(kvBatch.batch)
+	if err != nil {
+		return err
+	}
+	return w.store.applyMerges(kvBatch.merges)
+}
+
+func (s *kvStore) applyMerges(merges map[string][][]byte) error {
+	r := s.reader()
+	defer r.Close()
+	needToSet := make(map[string]string, len(merges))
+
+	for kStr, vs := range merges {
+		key, err := fromKey(kStr)
+		if err != nil {
+			return err
+		}
+
+		valStr, err := r.tx.Get(kStr)
+		var val []byte
+		switch err {
+		case sorted.ErrNotFound:
+			val = nil
+		case nil:
+			val, err = fromVal(valStr)
+			if err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+		val, ok := s.op.FullMerge(key, val, vs)
+		if !ok {
+			return fmt.Errorf("Merge failed for key %q", key)
+		}
+		needToSet[kStr] = toValue(val)
+	}
+	r.Close()
+
+	newBatch := s.txr.BeginBatch()
+	for k, v := range needToSet {
+		newBatch.Set(k, v)
+	}
+	return s.txr.CommitBatch(newBatch)
 }
 
 func (*kvWriter) Close() error {
 	return nil
 }
+
 func (r *kvReader) Close() error {
-	return r.tx.Close()
+	if !r.isClosed {
+		r.isClosed = true
+		return r.tx.Close()
+	}
+	return nil
 }
 
 func (b *kvBatch) Set(key, val []byte) {
@@ -176,7 +250,19 @@ func (b *kvBatch) Set(key, val []byte) {
 }
 
 func (b *kvBatch) Delete(key []byte) {
-	b.batch.Delete(toKey(key))
+	k := toKey(key)
+	b.batch.Delete(k)
+	delete(b.merges, k)
+}
+
+func (b *kvBatch) Merge(key, val []byte) {
+	k := toKey(key)
+	b.merges[k] = append(b.merges[k], val)
+}
+
+func (b *kvBatch) Reset() {
+	b.Close()
+	*b = *b.writer.NewBatch().(*kvBatch)
 }
 
 func (b *kvBatch) Close() error {
