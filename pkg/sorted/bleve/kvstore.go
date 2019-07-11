@@ -6,20 +6,33 @@ import (
 	"strings"
 
 	"github.com/blevesearch/bleve/index/store"
+	"github.com/blevesearch/bleve/registry"
 
 	"perkeep.org/pkg/sorted"
 )
 
-func NewKVStore(txr sorted.TransactionalReader, op store.MergeOperator) store.KVStore {
+func init() {
+	registry.RegisterKVStore("perkeep", NewFromConfig)
+}
+
+func NewFromConfig(mo store.MergeOperator, config map[string]interface{}) (store.KVStore, error) {
+	txr, ok := config["txr"].(sorted.TransactionalReader)
+	if !ok {
+		return nil, fmt.Errorf("bad config; txr was not a sorted.TransactionalReader.")
+	}
+	return NewFromTxReader(mo, txr), nil
+}
+
+func NewFromTxReader(mo store.MergeOperator, txr sorted.TransactionalReader) store.KVStore {
 	return &kvStore{
 		txr: txr,
-		op:  op,
+		mo:  mo,
 	}
 }
 
 type kvStore struct {
 	txr sorted.TransactionalReader
-	op  store.MergeOperator
+	mo  store.MergeOperator
 }
 
 type kvReader struct {
@@ -218,7 +231,7 @@ func (s *kvStore) applyMerges(merges map[string][][]byte) error {
 		default:
 			return err
 		}
-		val, ok := s.op.FullMerge(key, val, vs)
+		val, ok := s.mo.FullMerge(key, val, vs)
 		if !ok {
 			return fmt.Errorf("Merge failed for key %q", key)
 		}
