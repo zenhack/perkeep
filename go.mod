@@ -6,8 +6,15 @@ require (
 	bazil.org/fuse v0.0.0-20160811212531-371fbbdaa898
 	cloud.google.com/go v0.39.0
 	github.com/FiloSottile/b2 v0.0.0-20170207175032-b197f7a2c317
+	github.com/RoaringBitmap/roaring v0.4.18 // indirect
+	github.com/Smerity/govarint v0.0.0-20150407073650-7265e41f48f1 // indirect
 	github.com/aws/aws-sdk-go v1.14.31
+	github.com/blevesearch/bleve v0.7.0
+	github.com/blevesearch/go-porterstemmer v1.0.2 // indirect
+	github.com/blevesearch/segment v0.0.0-20160915185041-762005e7a34f // indirect
+	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/bradfitz/latlong v0.0.0-20140711231157-b74550508561
+	github.com/couchbase/vellum v0.0.0-20190626091642-41f2deade2cf // indirect
 	github.com/cznic/fileutil v0.0.0-20180108211300-6a051e75936f // indirect
 	github.com/cznic/internal v0.0.0-20170905175358-4747030f7cf2 // indirect
 	github.com/cznic/kv v0.0.0-20170515202733-892ccf731fb7
@@ -16,13 +23,13 @@ require (
 	github.com/cznic/sortutil v0.0.0-20150617083342-4c7342852e65 // indirect
 	github.com/cznic/zappy v0.0.0-20160723133515-2533cb5b45cc // indirect
 	github.com/edsrzf/mmap-go v0.0.0-20170320065105-0bce6a688712 // indirect
+	github.com/elgris/sqrl v0.0.0-20181124135704-90ecf730640a
 	github.com/facebookgo/ensure v0.0.0-20160127193407-b4ab57deab51 // indirect
 	github.com/facebookgo/stack v0.0.0-20160209184415-751773369052 // indirect
 	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
 	github.com/garyburd/go-oauth v0.0.0-20180319155456-bca2e7f09a17
 	github.com/go-ini/ini v1.38.1 // indirect
 	github.com/go-sql-driver/mysql v1.4.1-0.20180719071942-99ff426eb706
-	github.com/golang/snappy v0.0.0-20170215233205-553a64147049 // indirect
 	github.com/google/go-cmp v0.3.0 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20181017120253-0766667cb4d1
 	github.com/gopherjs/jquery v0.0.0-20180404123100-3ba2b901425e
@@ -47,7 +54,7 @@ require (
 	github.com/rwcarlsen/goexif v0.0.0-20180518182100-8d986c03457a
 	github.com/shurcooL/sanitized_anchor_name v0.0.0-20150515002706-11a20b799bf2 // indirect
 	github.com/smartystreets/goconvey v0.0.0-20190330032615-68dc04aab96a // indirect
-	github.com/stretchr/testify v1.3.0 // indirect
+	github.com/steveyen/gtreap v0.0.0-20150807155958-0abe01ef9be2 // indirect
 	github.com/syndtr/goleveldb v0.0.0-20180608030153-db3ee9ee8931
 	github.com/tgulacsi/picago v0.0.0-20171229130838-9e1ac2306c70
 	go4.org v0.0.0-20190218023631-ce4c26f7be8e

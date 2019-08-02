@@ -338,6 +338,21 @@
 			}
 		},
 
+		"/index-fulltext/": {
+			"enabled": ["_env", "${CAMLI_FULLTEXT_ENABLED}", true],
+			"handler": "storage-fulltext-index",
+			"handlerArgs": {
+				"blobSource": "/bs/",
+				"bleve": {
+					"path": ["_env", "${CAMLI_BLEVE_PATH}"]
+				},
+				"sql": {
+					"driver": "sqlite3",
+					"location": ["_env", "${CAMLI_FULLTEXT_SQLITE_PATH}"]
+				}
+			}
+		},
+
 		"/my-search/": {
 			"handler": "search",
 			"handlerArgs": {
