@@ -2,10 +2,13 @@ package fulltext
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/blevesearch/bleve"
+	bleveQuery "github.com/blevesearch/bleve/search/query"
 	"go4.org/jsonconfig"
 	"perkeep.org/pkg/blobserver"
 
@@ -85,7 +88,35 @@ type fullTextSearch struct {
 	index *Index
 }
 
-func (fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	w.WriteHeader(500)
-	w.Write([]byte("Not implemented"))
+type search struct {
+	MatchText json.RawMessage `json:"matchText"`
+}
+
+func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	search := &search{}
+	err := json.NewDecoder(req.Body).Decode(search)
+	if err != nil {
+		log.Print("Failed to decode query: ", err)
+		w.WriteHeader(400)
+		return
+	}
+	q, err := bleveQuery.ParseQuery([]byte(search.MatchText))
+	if err != nil {
+		log.Print("Failed to parse bleve query: ", err)
+		w.WriteHeader(400)
+		return
+	}
+	searchReq := bleve.NewSearchRequest(q)
+	searchRes, err := s.index.bleveSearch(searchReq)
+	if err != nil {
+		log.Print("Bleve search failed: ", err)
+		w.WriteHeader(500)
+		return
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	err = enc.Encode(searchRes)
+	if err != nil {
+		log.Print("Failed to encode search result: ", err)
+	}
 }

@@ -300,8 +300,17 @@ func (ix *Index) indexFile(sniffer *index.BlobSniffer, r *schema.FileReader) (er
 	return
 }
 
+func (ix *Index) lockBleve()   { <-ix.mu }
+func (ix *Index) unlockBleve() { ix.mu <- struct{}{} }
+
 func (ix *Index) indexBleve(id string, data interface{}) error {
-	<-ix.mu
-	defer func() { ix.mu <- struct{}{} }()
+	ix.lockBleve()
+	defer ix.unlockBleve()
 	return ix.bleveIndex.Index(id, data)
+}
+
+func (ix *Index) bleveSearch(req *bleve.SearchRequest) (*bleve.SearchResult, error) {
+	ix.lockBleve()
+	defer ix.unlockBleve()
+	return ix.bleveIndex.Search(req)
 }
