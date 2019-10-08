@@ -113,6 +113,7 @@ func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	err = enc.Encode(searchRes)
