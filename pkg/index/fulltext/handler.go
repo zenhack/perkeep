@@ -2,6 +2,8 @@ package fulltext
 
 import (
 	"database/sql"
+	"fmt"
+	"net/http"
 
 	"github.com/blevesearch/bleve"
 	"go4.org/jsonconfig"
@@ -11,10 +13,11 @@ import (
 )
 
 func init() {
-	blobserver.RegisterStorageConstructor("fulltext-index", newFromConfig)
+	blobserver.RegisterStorageConstructor("fulltext-index", newStoreFromConfig)
+	blobserver.RegisterHandlerConstructor("fulltext-search", newHandlerFromConfig)
 }
 
-func newFromConfig(loader blobserver.Loader, cfg jsonconfig.Obj) (bs blobserver.Storage, err error) {
+func newStoreFromConfig(loader blobserver.Loader, cfg jsonconfig.Obj) (bs blobserver.Storage, err error) {
 	blobSrcPrefix := cfg.RequiredString("blobSource")
 
 	dbCfg := cfg.RequiredObject("sql")
@@ -56,4 +59,33 @@ func newFromConfig(loader blobserver.Loader, cfg jsonconfig.Obj) (bs blobserver.
 		}
 	}()
 	return New(db, bleveIdx, blobSrc)
+}
+
+func newHandlerFromConfig(loader blobserver.Loader, cfg jsonconfig.Obj) (http.Handler, error) {
+	indexPath := cfg.RequiredString("index")
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	index, err := loader.GetStorage(indexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	fullTextIndex, ok := index.(*Index)
+	if !ok {
+		return nil, fmt.Errorf("Not a full text index")
+	}
+
+	return &fullTextSearch{index: fullTextIndex}, nil
+}
+
+type fullTextSearch struct {
+	index *Index
+}
+
+func (fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(500)
+	w.Write([]byte("Not implemented"))
 }

@@ -353,6 +353,14 @@
 			}
 		},
 
+    "/search-fulltext/": {
+			"enabled": ["_env", "${CAMLI_FULLTEXT_ENABLED}", true],
+			"handler": "fulltext-search",
+			"handlerArgs": {
+				"index": "/index-fulltext/"
+			}
+    },
+
 		"/my-search/": {
 			"handler": "search",
 			"handlerArgs": {
