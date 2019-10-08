@@ -11,6 +11,8 @@ import (
 
 	"github.com/blevesearch/bleve"
 
+	"perkeep.org/internal/magic"
+
 	"perkeep.org/pkg/blob"
 	"perkeep.org/pkg/blobserver"
 	"perkeep.org/pkg/index"
@@ -221,7 +223,7 @@ func (ix *Index) indexBlob(sniffer *index.BlobSniffer, b *schema.Blob) (err erro
 			return
 		}
 		defer r.Close()
-		err = ix.indexFile(sniffer, r)
+		err = ix.indexFile(b, r)
 	default:
 		log.Printf("Unknown blob type %q; not indexing.", b.Type())
 	}
@@ -265,8 +267,8 @@ func (ix *Index) indexClaimBlob(b *schema.Claim) (err error) {
 	return
 }
 
-func (ix *Index) indexFile(sniffer *index.BlobSniffer, r *schema.FileReader) (err error) {
-	blobRef := r.SchemaBlobRef()
+func (ix *Index) indexFile(b *schema.Blob, r *schema.FileReader) (err error) {
+	blobRef := b.BlobRef()
 
 	meta := &File{
 		Common: Common{
@@ -276,7 +278,7 @@ func (ix *Index) indexFile(sniffer *index.BlobSniffer, r *schema.FileReader) (er
 		},
 		Filename: r.FileName(),
 		Size:     r.Size(),
-		MIMEType: sniffer.MIMEType(),
+		MIMEType: magic.MIMETypeFromReaderAt(r),
 	}
 	modTime := r.ModTime()
 	if !modTime.IsZero() {
