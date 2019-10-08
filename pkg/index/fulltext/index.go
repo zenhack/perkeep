@@ -283,8 +283,10 @@ func (ix *Index) indexFile(sniffer *index.BlobSniffer, r *schema.FileReader) (er
 		meta.ModTime = &modTime
 	}
 
+	tooBig := meta.Size > 100*1024*1024
+
 	f, ok := mimeIndexers[meta.MIMEType]
-	if ok {
+	if ok && !tooBig {
 		// If we know about the mime type, index the contents. Otherwise,
 		// we still index the metadata, but leave the contents nil.
 		var data interface{}
