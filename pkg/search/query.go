@@ -305,6 +305,7 @@ type Constraint struct {
 	BlobSize *IntConstraint   `json:"blobSize,omitempty"`
 
 	Permanode *PermanodeConstraint `json:"permanode,omitempty"`
+	Text      json.RawMessage      `json:"text,omitempty"`
 
 	matcherOnce sync.Once
 	matcherFn   matchFn

@@ -1,6 +1,7 @@
 package fulltext
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,9 +9,13 @@ import (
 	"net/http"
 
 	"github.com/blevesearch/bleve"
-	bleveQuery "github.com/blevesearch/bleve/search/query"
+	"github.com/blevesearch/bleve/search/query"
+
 	"go4.org/jsonconfig"
+
+	"perkeep.org/pkg/blob"
 	"perkeep.org/pkg/blobserver"
+	"perkeep.org/pkg/search"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -88,36 +93,59 @@ type fullTextSearch struct {
 	index *Index
 }
 
-type search struct {
+type search_ struct {
 	MatchText json.RawMessage `json:"matchText"`
 }
 
 func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	search := &search{}
-	err := json.NewDecoder(req.Body).Decode(search)
+	rawq := &search.SearchQuery{}
+	err := json.NewDecoder(req.Body).Decode(rawq)
 	if err != nil {
 		log.Print("Failed to decode query: ", err)
 		w.WriteHeader(400)
 		return
 	}
-	q, err := bleveQuery.ParseQuery([]byte(search.MatchText))
+	res, err := s.Query(req.Context(), rawq)
 	if err != nil {
-		log.Print("Failed to parse bleve query: ", err)
-		w.WriteHeader(400)
-		return
-	}
-	searchReq := bleve.NewSearchRequest(q)
-	searchRes, err := s.index.bleveSearch(searchReq)
-	if err != nil {
-		log.Print("Bleve search failed: ", err)
+		log.Print("Query failed: ", err)
 		w.WriteHeader(500)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	err = enc.Encode(searchRes)
+	err = enc.Encode(res)
 	if err != nil {
 		log.Print("Failed to encode search result: ", err)
 	}
+}
+
+func (s *fullTextSearch) Query(ctx context.Context, rawq *search.SearchQuery) (*search.SearchResult, error) {
+	if rawq.Constraint == nil || rawq.Constraint.Text == nil {
+		return nil, fmt.Errorf("Unsupported")
+	}
+	q, err := query.ParseQuery([]byte(rawq.Constraint.Text))
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing bleve query: %q", err)
+	}
+
+	searchReq := bleve.NewSearchRequest(q)
+	searchRes, err := s.index.bleveSearch(searchReq)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &search.SearchResult{}
+
+	for _, hit := range searchRes.Hits {
+		ref, ok := blob.Parse(hit.ID)
+		if !ok {
+			return nil, fmt.Errorf("Warning: Invalid blobref in bleve index")
+		}
+		res.Blobs = append(res.Blobs, &search.SearchResultBlob{
+			Blob: ref,
+		})
+	}
+
+	return res, nil
 }
