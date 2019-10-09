@@ -7,15 +7,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/blevesearch/bleve"
 	"github.com/blevesearch/bleve/search/query"
 
 	"go4.org/jsonconfig"
 
+	"perkeep.org/internal/httputil"
 	"perkeep.org/pkg/blob"
 	"perkeep.org/pkg/blobserver"
 	"perkeep.org/pkg/search"
+	"perkeep.org/pkg/types/camtypes"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -93,11 +96,39 @@ type fullTextSearch struct {
 	index *Index
 }
 
-type search_ struct {
-	MatchText json.RawMessage `json:"matchText"`
+func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	suffix := httputil.PathSuffix(req)
+	path := strings.TrimPrefix(suffix, "camli/search/")
+	switch {
+	case req.Method == "POST":
+		s.searchPost(path, w, req)
+	case httputil.IsGet(req):
+	default:
+		httputil.ReturnJSON(w, &camtypes.SearchErrorResponse{
+			Error:     "Unsupported search method",
+			ErrorType: "Input",
+		})
+		return
+	}
 }
 
-func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (s *fullTextSearch) searchPost(path string, w http.ResponseWriter, req *http.Request) {
+	switch path {
+	case "query":
+		s.searchQuery(w, req)
+	case "describe":
+		// We'll want to implement this at some point, but for now send it
+		// to the catchall.
+		fallthrough
+	default:
+		httputil.ReturnJSON(w, &camtypes.SearchErrorResponse{
+			Error:     "Unsupported search path",
+			ErrorType: "Input",
+		})
+	}
+}
+
+func (s *fullTextSearch) searchQuery(w http.ResponseWriter, req *http.Request) {
 	rawq := &search.SearchQuery{}
 	err := json.NewDecoder(req.Body).Decode(rawq)
 	if err != nil {
@@ -111,13 +142,7 @@ func (s *fullTextSearch) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	err = enc.Encode(res)
-	if err != nil {
-		log.Print("Failed to encode search result: ", err)
-	}
+	httputil.ReturnJSON(w, res)
 }
 
 func (s *fullTextSearch) Query(ctx context.Context, rawq *search.SearchQuery) (*search.SearchResult, error) {
