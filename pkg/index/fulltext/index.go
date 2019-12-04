@@ -36,11 +36,21 @@ type Index struct {
 }
 
 type Common struct {
-	Type             string
-	Mutable          bool
+	Type    string
+	Mutable bool
+
+	// The "version" of the indexer that indexed this item. This allows
+	// future versions of perkeep to work out which blobs should be
+	// re-indexed For example, if we add support for a new mime type
+	// "application/example" in version N, then we can search for blobs
+	// where the mime type is application/example and IndexByVersion is
+	// less than N, and re-index those blobs.
 	IndexedByVersion int
 }
 
+// The current "version" of the indexer. See the comments in
+// Common.IndexedByVersion; we set that field to this value when indexing
+// blobs.
 const currentIndexerVersion = 1
 
 type File struct {
