@@ -3,7 +3,6 @@ package fulltext
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -130,7 +129,7 @@ func (s *fullTextSearch) searchPost(path string, w http.ResponseWriter, req *htt
 
 func (s *fullTextSearch) searchQuery(w http.ResponseWriter, req *http.Request) {
 	rawq := &search.SearchQuery{}
-	err := json.NewDecoder(req.Body).Decode(rawq)
+	err := rawq.FromHTTP(req)
 	if err != nil {
 		log.Print("Failed to decode query: ", err)
 		w.WriteHeader(400)
