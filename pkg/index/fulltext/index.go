@@ -36,8 +36,7 @@ type Index struct {
 }
 
 type Common struct {
-	Type    string
-	Mutable bool
+	Type string
 
 	// The "version" of the indexer that indexed this item. This allows
 	// future versions of perkeep to work out which blobs should be
@@ -283,7 +282,6 @@ func (ix *Index) indexFile(b *schema.Blob, r *schema.FileReader) (err error) {
 	meta := &File{
 		Common: Common{
 			Type:             "file",
-			Mutable:          false,
 			IndexedByVersion: currentIndexerVersion,
 		},
 		Filename: r.FileName(),
