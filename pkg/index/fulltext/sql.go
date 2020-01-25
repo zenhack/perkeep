@@ -60,6 +60,11 @@ func initDB(db *sql.DB) error {
 			valid_until INTEGER NOT NULL
 		)
 		`,
+		`CREATE TABLE IF NOT EXISTS edges (
+			from_ VARCHAR NOT NULL,
+			to_ VARCHAR NOT NULL,
+			UNIQUE(from_, to_)
+		)`,
 	}
 	for _, v := range tables {
 		if _, err := db.Exec(v); err != nil {
@@ -101,15 +106,11 @@ func handleClaim(tx *sql.Tx, claim *camtypes.Claim) error {
 }
 
 func handleDelete(tx *sql.Tx, claim *camtypes.Claim) error {
-	_, err := tx.Exec(`
-		INSERT INTO deleted
-		(permandode_ref, signer_ref, date)
-		VALUES(?, ?, ?)
-		`,
-		claim.Target.String(),
-		claim.Signer.String(),
-		claim.Date.Unix(),
-	)
+	_, err := sqrl.Insert("deleted").SetMap(map[string]interface{}{
+		"permanode_ref": claim.Target.String(),
+		"signer_ref":    claim.Signer.String(),
+		"date":          claim.Date.Unix(),
+	}).RunWith(tx).Exec()
 	return err
 }
 
@@ -118,28 +119,31 @@ func handleAddAttribute(tx *sql.Tx, claim *camtypes.Claim) error {
 	signer := claim.Signer.String()
 	unixDate := claim.Date.Unix()
 
-	row := tx.QueryRow(`
-		SELECT date
-		FROM attr_claims
-		WHERE
-			attr = ?
-			AND date > ?
-			AND (
-				type = 'set-attribute'
-				OR (
-					type = 'del-attribute'
-					AND (value = ? || value = '')
-				)
-			)
-			AND permanode_ref = ?
-			AND signer_ref = ?
-		`,
-		unixDate,
-		claim.Attr,
-		claim.Value,
-		permanode,
-		signer,
-	)
+	// Search for a claim which overrides this one. If we find one, its date
+	// will be the 'valid_until' field for this attribute entry.
+	row := sqrl.Select("date").From("attr_claims").Where(sqrl.And{
+		sqrl.Gt{"date": unixDate},
+
+		sqrl.Eq{"attr": claim.Attr},
+		sqrl.Eq{"permanode_ref": permanode},
+		sqrl.Eq{"signer_ref": signer},
+
+		sqrl.Or{
+			sqrl.Eq{"type": "set-attribute"},
+			sqrl.And{
+				sqrl.Eq{"type": "del-attribute"},
+				sqrl.Or{
+					sqrl.Eq{"value": claim.Value},
+					sqrl.Eq{"value": ""},
+				},
+			},
+		},
+	}).
+		OrderBy("date ASC").
+		Limit(1).
+		RunWith(tx).
+		QueryRow()
+
 	var validUntil int64
 	err := row.Scan(&validUntil)
 	switch err {
@@ -150,17 +154,14 @@ func handleAddAttribute(tx *sql.Tx, claim *camtypes.Claim) error {
 		return err
 	}
 
-	_, err = tx.Exec(`
-		INSERT INTO attrs
-		(permanode_ref, signer_ref, attr, value, valid_since, valid_until)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		permanode,
-		signer,
-		claim.Attr,
-		claim.Value,
-		unixDate,
-		validUntil,
-	)
+	_, err = sqrl.Insert("attrs").SetMap(map[string]interface{}{
+		"permanode_ref": permanode,
+		"signer_ref":    signer,
+		"attr":          claim.Attr,
+		"value":         claim.Value,
+		"valid_since":   unixDate,
+		"valid_until":   validUntil,
+	}).RunWith(tx).Exec()
 	return err
 }
 
@@ -186,30 +187,22 @@ func handleDelAttribute(tx *sql.Tx, claim *camtypes.Claim) error {
 func saveClaim(tx *sql.Tx, claim *camtypes.Claim) error {
 	switch claim.Type {
 	case "delete":
-		_, err := tx.Exec(`
-			INSERT OR IGNORE INTO deleted
-			(permanode_ref, signer_ref, date)
-			VALUES (?, ?, ?)
-			`,
-			claim.Target.String(),
-			claim.Signer.String(),
-			claim.Date.Unix(),
-		)
+		_, err := sqrl.Insert("deleted").Options("OR IGNORE").SetMap(map[string]interface{}{
+			"permanode_ref": claim.Target.String(),
+			"signer_ref":    claim.Signer.String(),
+			"date":          claim.Date.Unix(),
+		}).RunWith(tx).Exec()
 		return err
 	case "add-attribute", "set-attribute", "del-attribute":
-		_, err := tx.Exec(`
-			INSERT OR IGNORE INTO attr_claims
-			(type, claim_ref, signer_ref, date, attr, value, permanode_ref)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			`,
-			claim.Type,
-			claim.BlobRef.String(),
-			claim.Signer.String(),
-			claim.Date.Unix(),
-			claim.Attr,
-			claim.Value,
-			claim.Permanode.String(),
-		)
+		_, err := sqrl.Insert("attr_claims").Options("OR IGNORE").SetMap(map[string]interface{}{
+			"type":          claim.Type,
+			"claim_ref":     claim.BlobRef.String(),
+			"signer_ref":    claim.Signer.String(),
+			"date":          claim.Date.Unix(),
+			"attr":          claim.Attr,
+			"value":         claim.Value,
+			"permanode_ref": claim.Permanode.String(),
+		}).RunWith(tx).Exec()
 		return err
 	default:
 		return fmt.Errorf("Unknown claim type: %q", claim.Type)
@@ -218,23 +211,13 @@ func saveClaim(tx *sql.Tx, claim *camtypes.Claim) error {
 
 func attrAsOf(db *sql.DB, signer string, permanode blob.Ref, when time.Time, attr string) (string, error) {
 	// TODO: mutli-value attrs.
-	row := db.QueryRow(`
-		SELECT value
-		FROM attrs
-		WHERE
-			valid_since <= ?
-			&& valid_until > ?
-			&& attr = ?
-			&& permanode_ref = ?
-			&& signer = ?
-		LIMIT 1
-		`,
-		when,
-		when,
-		attr,
-		permanode.String(),
-		signer,
-	)
+	row := sqrl.Select("value").From("attrs").Where(sqrl.And{
+		sqrl.LtOrEq{"valid_since": when},
+		sqrl.Gt{"valid_until": when},
+		sqrl.Eq{"attr": attr},
+		sqrl.Eq{"permanode_ref": permanode.String()},
+		sqrl.Eq{"signer": signer},
+	}).Limit(1).RunWith(db).QueryRow()
 	ret := ""
 	err := row.Scan(&ret)
 	return ret, err
