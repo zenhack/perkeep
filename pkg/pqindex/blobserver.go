@@ -10,6 +10,7 @@ import (
 
 	"perkeep.org/pkg/blob"
 	"perkeep.org/pkg/blobserver"
+	"perkeep.org/pkg/schema"
 
 	_ "github.com/lib/pq"
 )
@@ -64,6 +65,7 @@ func (s *Server) RoTx(ctx context.Context, fn func(RoStorage) error) error {
 }
 
 type handleStorage struct {
+	RoStorage
 	h sqlHandle
 }
 
@@ -75,25 +77,11 @@ func FromDB(db *sql.DB) *Server {
 }
 
 func (s handleStorage) Init() error {
-	_, err := s.h.Exec(`CREATE TABLE IF NOT EXISTS blobs (
+	_, err := s.h.Exec(`CREATE TABLE IF NOT EXISTS schema_blobs (
 		blobref VARCHAR PRIMARY KEY,
-		size INTEGER NOT NULL,
-		content BYTEA NOT NULL
+		parsed_json JSON NOT NULL
 	)`)
 	return err
-}
-
-func (s handleStorage) Fetch(ctx context.Context, br blob.Ref) (blob io.ReadCloser, size uint32, err error) {
-	data := []byte{}
-	row := s.h.QueryRow(
-		`SELECT (size, blob)
-		FROM blobs
-		WHERE blobref = $1`,
-		br.String(),
-	)
-	err = row.Scan(&size, &data)
-	blob = ioutil.NopCloser(bytes.NewBuffer(data))
-	return
 }
 
 func placeHolders(start int, count int) string {
@@ -122,89 +110,26 @@ func (s handleStorage) ReceiveBlob(ctx context.Context, br blob.Ref, source io.R
 	if err != nil {
 		return blob.SizedRef{}, err
 	}
-	_, err = s.h.Exec(`
-		INSERT INTO blobs (blobref, size, content)
-		VALUES ($1, $2, $3)
-		ON CONFLICT DO NOTHING`,
-		br.String(),
-		len(data),
-		data,
-	)
-	return blob.SizedRef{
+	sr := blob.SizedRef{
 		Ref:  br,
 		Size: uint32(len(data)),
-	}, err
-}
-
-func (s handleStorage) StatBlobs(ctx context.Context, blobs []blob.Ref, fn func(blob.SizedRef) error) error {
-	query, args := blobRefsSql(1, blobs...)
-	query = `SELECT (blobref, size) FROM blobs WHERE blobref IN ` + query
-	rows, err := s.h.Query(query, args...)
-	if err != nil {
-		return err
 	}
-	defer rows.Close()
-	for ctx.Err() == nil && rows.Next() {
-		refStr := ""
-		sr := blob.SizedRef{}
-		err := rows.Scan(&refStr, &sr.Size)
-		if err != nil {
-			return err
-		}
-		// If this fails, the db is corrupt:
-		sr.Ref = blob.MustParse(refStr)
-
-		err = fn(sr)
-		if err != nil {
-			return err
-		}
+	if !schema.LikelySchemaBlob(data) {
+		return sr, nil
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s handleStorage) EnumerateBlobs(
-	ctx context.Context,
-	dest chan<- blob.SizedRef,
-	after string,
-	limit int,
-) error {
-	defer close(dest)
-	rows, err := s.h.Query(`
-		SELECT (blobref, size) FROM blobs
-		WHERE ref > $1
-		ORDER BY blobref ASCENDING
-		LIMIT $2
-	`, after, limit)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		sr := blob.SizedRef{}
-		refStr := ""
-		err = rows.Scan(&refStr, &sr.Size)
-		if err != nil {
-			return err
-		}
-		sr.Ref = blob.MustParse(refStr)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case dest <- sr:
-		}
-	}
-	return rows.Err()
+	_, err = s.h.Exec(`
+		INSERT INTO schema_blobs (blobref, parsed_json)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING`,
+		br.String(),
+		data,
+	)
+	return sr, err
 }
 
 func (s handleStorage) RemoveBlobs(ctx context.Context, blobs []blob.Ref) error {
 	query, args := blobRefsSql(1, blobs...)
-	query = "DELETE FROM blobs WHERE blobref IN " + query
+	query = "DELETE FROM schema_blobs WHERE blobref IN " + query
 	_, err := s.h.Exec(query, args...)
 	return err
 }
